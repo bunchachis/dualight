@@ -1,7 +1,3 @@
-// #define SHIFTPWM_USE_TIMER2  // for Arduino Uno and earlier (Atmega328)
-// #define SHIFTPWM_USE_TIMER3  // for Arduino Micro/Leonardo (Atmega32u4)
-
-
 const int ShiftPWM_latchPin = 9;
 const bool ShiftPWM_invertOutputs = false;
 const bool ShiftPWM_balanceLoad = false;
@@ -23,12 +19,11 @@ Button encoderBtn = Button(encoderBtnPin, LOW);
 
 void setup(){
   pinMode(encoderBtnPin, INPUT_PULLUP);
-  Serial.begin(115200);
   ShiftPWM.SetAmountOfRegisters(numRegisters);
   ShiftPWM.Start(pwmFrequency,maxBrightness);
 }
 
-unsigned char mode = -1;
+unsigned char mode = 0;
 // 0: on/off
 // 1: hue 1
 // 2: sat 1
@@ -42,14 +37,90 @@ unsigned char mode = -1;
 // 10: both white
 // 11: randomize
 
-int ch0[] = {0, 0, 0};
-int ch1[] = {0, 0, 0};
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
+int ch0[] = {0, 0, 255};
+int ch1[] = {0, 0, 255};
+
+boolean inMode = false;
+boolean totalOff = false;
+        
+void update()
+{
+  update0();
+  update1();
+}
+
+void update0()
+{
+  if (totalOff) {
+    GL_SetRGB(0, 0, 0, 0);
+  } else {
+    GL_SetHSV(0, ch0[0] , ch0[1], ch0[2]);
+  }
+}
+
+void update1()
+{
+  if (totalOff) {
+    GL_SetRGB(1, 0, 0, 0);
+  } else {
+    GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
+  }
+}
+
+void copyCh(int src[], int dst[])
+{
+  dst[0] = src[0];
+  dst[1] = src[1];
+  dst[2] = src[2];
+}
+                  
 void loop()
 {
   encoderBtn.listen();
   if (encoderBtn.onRelease()) {
-    setMode((mode + 1) % 256 % 12);
+    switch (mode) {
+      case 0:
+        totalOff = !totalOff;
+        update();
+        break;
+      case 1:
+      case 2:
+      case 3:
+      case 4:
+      case 5:
+      case 6:
+        inMode = !inMode;
+        break;
+      case 7:
+        copyCh(ch0, ch1);
+        update1();
+        break;
+      case 8:
+        copyCh(ch1, ch0);
+        update0();
+        break;
+      case 9:
+        int tempCh[3];
+        copyCh(ch0, tempCh);
+        copyCh(ch1, ch0);
+        copyCh(tempCh, ch1);
+        update();
+        break;
+      case 10:
+        ch0[0] = ch1[0] = 0;
+        ch0[1] = ch1[1] = 0;
+        ch0[2] = ch1[2]= 255;
+        update();
+        break;
+      case 11:
+        ch0[0] = random(360);
+        ch1[0] = random(360);
+        ch0[1] = random(128, 256);
+        ch1[1] = random(128, 256);
+        ch0[2] = ch1[2] = 255;
+        update();
+        break;
+    }
   }
   
   handleMode();
@@ -57,51 +128,39 @@ void loop()
   AdaEncoder *enc = NULL;
   enc = AdaEncoder::genie();
   if (enc != NULL) {
-    int modifier = enc->getClearClicks() * 5;
-    Serial.print(mode);
-    Serial.print(": ");
-    switch (mode) {
-      case 1:
-        ch0[0] = (ch0[0] + modifier + 360) % 360;
-        GL_SetHSV(0, ch0[0], ch0[1], ch0[2]);
-        break;
-      case 2:
-        ch0[1] = (ch0[1] + modifier + 256) % 256;
-        GL_SetHSV(0, ch0[0], ch0[1], ch0[2]);
-        break;
-      case 3:
-        ch0[2] = (ch0[2] + modifier + 256) % 256;
-        GL_SetHSV(0, ch0[0], ch0[1], ch0[2]);
-        break;
-      case 4:
-        ch1[0] = (ch1[0] + modifier + 360) % 360;
-        GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
-        break;
-      case 5:
-        ch1[1] = (ch1[1] + modifier + 256) % 256;
-        GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
-        break;
-      case 6:
-        ch1[2] = (ch1[2] + modifier + 256) % 256;
-        GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
-        break;
-      case 7:
-        break;
-      case 8:
-        break;
-      case 9:
-        break;
-      case 10:
-        ch0[0] = ch1[0] = 0;
-        ch0[1] = ch1[1]= 0;
-        ch0[2] = ch1[2]= 255;
-        GL_SetHSV(0, ch0[0], ch0[1], ch0[2]);
-        GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
-        break;
-      case 11:
-        ch1[2] = (ch1[2] + modifier + 256) % 256;
-        GL_SetHSV(1, ch1[0], ch1[1], ch1[2]);
-        break;
+    int modifier = enc->getClearClicks();
+    if (!totalOff) {
+      if (inMode) {
+        modifier *= 5;
+        switch (mode) {
+          case 1:
+            ch0[0] = (ch0[0] + modifier + 360) % 360;
+            update0();
+            break;
+          case 2:
+            ch0[1] = (ch0[1] + modifier + 256) % 256;
+            update0();
+            break;
+          case 3:
+            ch0[2] = (ch0[2] + modifier + 256) % 256;
+            update0();
+            break;
+          case 4:
+            ch1[0] = (ch1[0] + modifier + 360) % 360;
+            update1();
+            break;
+          case 5:
+            ch1[1] = (ch1[1] + modifier + 256) % 256;
+            update1();
+            break;
+          case 6:
+            ch1[2] = (ch1[2] + modifier + 256) % 256;
+            update1();
+            break;
+        } 
+      } else {
+        setMode((mode + 12 + modifier) % 12);
+      }
     }
   }
 }
